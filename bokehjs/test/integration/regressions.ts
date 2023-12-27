@@ -2,12 +2,12 @@ import sinon from "sinon"
 
 import {expect, expect_condition, expect_not_null} from "../unit/assertions"
 import {display, fig, row, column, grid, DelayedInternalProvider} from "./_util"
-import {PlotActions, actions, xy, click, press, mouse_enter, mouse_down, mouse_click} from "../interactive"
+import {PlotActions, actions, xy, tap, press, mouse_enter, mouse_down, mouse_click} from "../interactive"
 
 import type {ArrowHead, Line, BasicTickFormatter} from "@bokehjs/models"
 import {
   Arrow, NormalHead, OpenHead,
-  BoxAnnotation, LabelSet, ColorBar, Slope, Whisker,
+  BoxAnnotation, LabelSet, ColorBar, Slope, Span, Whisker,
   Range1d, DataRange1d, FactorRange,
   ColumnDataSource, CDSView, BooleanFilter, IndexFilter, Selection,
   LinearAxis, CategoricalAxis,
@@ -37,7 +37,7 @@ import {
 
 import {
   Button, Toggle, Select, MultiSelect, MultiChoice, RadioGroup, RadioButtonGroup,
-  Div, TextInput, DatePicker,
+  Div, TextInput, DatePicker, AutocompleteInput,
 } from "@bokehjs/models/widgets"
 
 import {DataTable, TableColumn, DateFormatter} from "@bokehjs/models/widgets/tables"
@@ -57,8 +57,9 @@ import {paint, delay} from "@bokehjs/core/util/defer"
 import {encode_rgba} from "@bokehjs/core/util/color"
 import {Figure, figure, show} from "@bokehjs/api/plotting"
 import {Spectral11, turbo, plasma} from "@bokehjs/api/palettes"
+import type {Keys} from "@bokehjs/core/dom"
 import {div} from "@bokehjs/core/dom"
-import type {XY, LRTB} from "@bokehjs/core/util/bbox"
+import type {LRTB} from "@bokehjs/core/util/bbox"
 import {sprintf} from "@bokehjs/core/util/templating"
 import {assert} from "@bokehjs/core/util/assert"
 
@@ -85,7 +86,7 @@ function scalar_image(N: number = 100) {
       d[i*N + j] = sin(x[i])*cos(y[j])
     }
   }
-  return ndarray(d, {shape: [N, N]})
+  return ndarray(d, {dtype: "float64", shape: [N, N]})
 }
 
 function rgba_image() {
@@ -103,7 +104,7 @@ function rgba_image() {
       dv.setUint32(4*(i*N + j), encode_rgba([r, g, b, a]))
     }
   }
-  return ndarray(d, {shape: [N, N]})
+  return ndarray(d, {dtype: "uint32", shape: [N, N]})
 }
 
 function svg_image() {
@@ -2647,7 +2648,7 @@ describe("Bug", () => {
       const {view} = await display(gp)
 
       const btn = view.owner.get_one(zoom_in_btn)
-      await click(btn.el)
+      await tap(btn.el)
     })
   })
 
@@ -2829,26 +2830,17 @@ describe("Bug", () => {
       const {view} = await display(p)
       await paint()
 
-      //const actions = new PlotActions(view)
-      //await actions.tap({x: 15, y: 15})
-      //await actions.tap({x: 15, y: 35})
-      //await actions.tap({x: 35, y: 35})
-
-      function tap(xy: XY) {
-        const sx = view.frame.x_scale.compute(xy.x)
-        const sy = view.frame.y_scale.compute(xy.y)
-        const poly_select_view = view.owner.get_one(poly_select)
-        poly_select_view._tap({type: "tap", sx, sy, modifiers: {ctrl: false, shift: false, alt: false}})
-      }
-
-      tap({x: 15, y: 15})
-      tap({x: 15, y: 35})
-      tap({x: 35, y: 35})
+      const actions = new PlotActions(view)
+      await actions.tap({x: 15, y: 15})
+      await actions.tap({x: 15, y: 35})
+      await actions.tap({x: 35, y: 35})
 
       const zoom_out_button_view = view.owner.get_one(zoom_out_button)
       for (let i = 0; i < 5; i++) {
-        await click(zoom_out_button_view.el)
+        await tap(zoom_out_button_view.el)
       }
+
+      await view.ready
     })
   })
 
@@ -3660,6 +3652,30 @@ describe("Bug", () => {
 
       const layout = row([plot("canvas"), plot("svg"), plot("webgl")])
       await display(layout)
+    })
+  })
+
+  describe("in issue #8890", () => {
+    it("doesn't allow to render newly added Span annotation", async () => {
+      const span0 = new Span({location: 0.5, dimension: "width", line_color: "red"})
+      const span1 = new Span({location: 0.5, dimension: "height", line_color: "blue"})
+
+      const plot = fig([200, 200], {x_range: [0, 1], y_range: [0, 1], renderers: [span0]})
+      const {view} = await display(plot)
+
+      plot.add_layout(span1)
+      await view.ready
+    })
+  })
+
+  describe("in issue #13574", () => {
+    it("doesn't allow to correctly change active menu item with arrows in AutocompleteInput", async () => {
+      const widget = new AutocompleteInput({completions: ["aaa", "aab", "aac", "aad", "aae"], min_characters: 0})
+      const {view} = await display(widget, [300, 200])
+      view.input_el.dispatchEvent(new FocusEvent("focusin"))
+      view.input_el.dispatchEvent(new KeyboardEvent("keyup", {key: "ArrowDown" satisfies Keys}))
+      view.input_el.dispatchEvent(new KeyboardEvent("keyup", {key: "ArrowDown" satisfies Keys}))
+      await view.ready
     })
   })
 })

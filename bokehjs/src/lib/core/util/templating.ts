@@ -5,6 +5,7 @@ import type {CustomJSHover} from "models/tools/inspectors/customjs_hover"
 import {sprintf as sprintf_js} from "sprintf-js"
 import tz from "timezone"
 import {Enum} from "../kinds"
+import {logger} from "../logging"
 import {is_NDArray} from "./ndarray"
 import {isArray, isNumber, isString, isTypedArray} from "./types"
 
@@ -70,11 +71,15 @@ export function get_formatter(raw_spec: string, format?: string, formatters?: Fo
   return DEFAULT_FORMATTERS.numeral
 }
 
+const MISSING = "???"
+
 function  _get_special_value(name: string, special_vars: Vars) {
-  if (name in special_vars)
+  if (name in special_vars) {
     return special_vars[name]
-  else
-    throw new Error(`Unknown special variable '\$${name}'`)
+  } else {
+    logger.warn(`unknown special variable '\$${name}'`)
+    return MISSING
+  }
 }
 
 export function _get_column_value(name: string, data_source: ColumnarDataSource, ind: Index | null): unknown | null {
@@ -144,20 +149,29 @@ export function replace_placeholders(content: string | {html: string}, data_sour
   str = str.replace(/((?:\$\w+)|(?:@\w+)|(?:@{(?:[^{}]+)}))(?:{([^{}]+)})?/g, (_match, spec, format) => {
     const value = get_value(spec, data_source, i, special_vars)
 
-    // missing value, return ???
-    if (value == null)
-      return encode != null ? encode("???") : "???"
-
     // 'safe' format, return the value as-is
     if (format == "safe") {
       has_html = true
-      return `${value}`
+      if (value == null) {
+        return MISSING
+      } else if (isNumber(value) && isNaN(value)) {
+        return "NaN"
+      } else {
+        return `${value}`
+      }
+    } else {
+      const result = (() => {
+        if (value == null) {
+          return MISSING
+        } else if (isNumber(value) && isNaN(value)) {
+          return "NaN"
+        } else {
+          const formatter = get_formatter(spec, format, formatters)
+          return `${formatter(value, format, special_vars)}`
+        }
+      })()
+      return encode != null ? encode(result) : result
     }
-
-    // format and escape everything else
-    const formatter = get_formatter(spec, format, formatters)
-    const result = `${formatter(value, format, special_vars)}`
-    return encode != null ? encode(result) : result
   })
 
   if (!has_html)
@@ -169,7 +183,7 @@ export function replace_placeholders(content: string | {html: string}, data_sour
   }
 }
 
-export function process_placeholders(text: string, fn: (type: "@" | "$", spec: string, format?: string) => string): string {
+export function process_placeholders(text: string, fn: (type: "@" | "$", spec: string, format?: string) => string | null | undefined): string {
   //
   // (?:\$\w+) - special vars: $x
   // (?:@\w+) - simple names: @foo
@@ -181,6 +195,6 @@ export function process_placeholders(text: string, fn: (type: "@" | "$", spec: s
   return text.replace(regex, (_match, spec: string, format?: string) => {
     const type = spec[0] as "@" | "$"
     const name = spec.substring(1).replace(/[{}]/g, "").trim()
-    return fn(type, name, format)
+    return fn(type, name, format) ?? MISSING
   })
 }

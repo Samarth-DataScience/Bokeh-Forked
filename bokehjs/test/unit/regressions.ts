@@ -2,7 +2,7 @@ import sinon from "sinon"
 
 import {expect, expect_instanceof, expect_not_null} from "assertions"
 import {display, fig, restorable} from "./_util"
-import {PlotActions, actions, xy, line, click} from "../interactive"
+import {PlotActions, actions, xy, line, tap} from "../interactive"
 
 import {
   BooleanFilter,
@@ -12,9 +12,11 @@ import {
   CDSView,
   CategoricalColorMapper,
   Circle,
+  Column,
   ColumnDataSource,
   CopyTool,
   CustomJS,
+  DataRange1d,
   GlyphRenderer,
   HoverTool,
   Legend,
@@ -22,6 +24,7 @@ import {
   Line,
   LinearColorMapper,
   Node,
+  Pane,
   Plot,
   Range1d,
   RangeTool,
@@ -29,11 +32,19 @@ import {
   Row,
   Scatter,
   TablerIcon,
+  TapTool,
   TileRenderer,
   Title,
   Toolbar,
   WMTSTileSource,
 } from "@bokehjs/models"
+
+import {
+  GlobalImportedStyleSheet,
+  GlobalInlineStyleSheet,
+  ImportedStyleSheet,
+  InlineStyleSheet,
+} from "@bokehjs/models/dom"
 
 import {
   Button,
@@ -48,17 +59,19 @@ import {keys, entries} from "@bokehjs/core/util/object"
 import {ndarray} from "@bokehjs/core/util/ndarray"
 import {BitSet} from "@bokehjs/core/util/bitset"
 import {base64_to_buffer} from "@bokehjs/core/util/buffer"
-import {div, offset_bbox} from "@bokehjs/core/dom"
+import type {XY} from "@bokehjs/core/util/bbox"
+import {div} from "@bokehjs/core/dom"
 import type {Color, Arrayable} from "@bokehjs/core/types"
 import type {DocJson, DocumentEvent} from "@bokehjs/document"
 import {Document, ModelChangedEvent, MessageSentEvent} from "@bokehjs/document"
 import {DocumentReady, RangesUpdate} from "@bokehjs/core/bokeh_events"
 import {gridplot} from "@bokehjs/api/gridplot"
-import {Spectral11} from "@bokehjs/api/palettes"
-import {defer, paint} from "@bokehjs/core/util/defer"
+import {Spectral11, Viridis256} from "@bokehjs/api/palettes"
+import {defer, paint, poll} from "@bokehjs/core/util/defer"
 import type {Field} from "@bokehjs/core/vectorization"
 
 import {UIElement, UIElementView} from "@bokehjs/models/ui/ui_element"
+import type {GlyphRendererView} from "@bokehjs/models/renderers/glyph_renderer"
 import {ImageURLView} from "@bokehjs/models/glyphs/image_url"
 import {CopyToolView} from "@bokehjs/models/tools/actions/copy_tool"
 import {TableDataProvider} from "@bokehjs/models/widgets/tables/data_table"
@@ -115,7 +128,7 @@ function scalar_image(N: number = 100) {
       d[i*N + j] = sin(x[i])*cos(y[j])
     }
   }
-  return ndarray(d, {shape: [N, N]})
+  return ndarray(d, {dtype: "float64", shape: [N, N]})
 }
 
 describe("Bug", () => {
@@ -154,6 +167,7 @@ describe("Bug", () => {
 
       r1.glyph.x = 2
       await view.ready
+      await view.ready // wait for request_paint()
 
       expect(rv0_spy.callCount).to.be.equal(0)
       expect(rv1_spy.callCount).to.be.equal(1)
@@ -161,6 +175,7 @@ describe("Bug", () => {
 
       r1.glyph.y = 4
       await view.ready
+      await view.ready // wait for request_paint()
 
       expect(rv0_spy.callCount).to.be.equal(0)
       expect(rv1_spy.callCount).to.be.equal(2)
@@ -168,6 +183,7 @@ describe("Bug", () => {
 
       r2.left = 1
       await view.ready
+      await view.ready // wait for request_paint()
 
       expect(rv0_spy.callCount).to.be.equal(0)
       expect(rv1_spy.callCount).to.be.equal(3)
@@ -233,15 +249,17 @@ describe("Bug", () => {
         const data_source = new ColumnDataSource({data: {x: [0, 1], y: [0.1, 0.1]}})
         const glyph = new Line({line_color: "red"})
         const renderer = new GlyphRenderer({data_source, glyph, hover_glyph})
-        const plot = fig([200, 200], {tools: [new HoverTool({mode: "vline"})]})
+        const plot = fig([200, 200], {tools: [new HoverTool({mode: "vline", attachment: "above"})]})
         plot.add_renderers(renderer)
 
         const {view} = await display(plot)
 
         const lnv = view.owner.get_one(renderer)
-        const ln_spy = sinon.spy(lnv, "request_render")
+        const ln_spy = sinon.spy(lnv, "request_paint")
 
         await actions(view).hover(xy(0, 0), xy(1, 1), 6)
+        await view.ready
+
         return ln_spy.callCount
       }
 
@@ -262,12 +280,14 @@ describe("Bug", () => {
       const {view} = await display(plot)
 
       const gv = view.owner.get_one(renderer)
-      const gv_spy = sinon.spy(gv, "request_render")
+      const gv_spy = sinon.spy(gv, "request_paint")
 
       await actions(view).hover(xy(0, 0), xy(1, 1), 6)
+      await view.ready
       expect(gv_spy.callCount).to.be.equal(0)
 
-      await actions(view).hover(xy(0.8, 1), xy(0.8, 0), 6)
+      await actions(view).hover(xy(0.6, 1), xy(0.6, 0), 6)
+      await view.ready
       expect(gv_spy.callCount).to.be.equal(1)
     })
   })
@@ -419,40 +439,32 @@ describe("Bug", () => {
       const jpg = "/9j/4AAQSkZJRgABAQEASABIAAD//gATQ3JlYXRlZCB3aXRoIEdJTVD/2wBDAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/2wBDAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/wgARCAAUABQDAREAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAn/xAAWAQEBAQAAAAAAAAAAAAAAAAAABwn/2gAMAwEAAhADEAAAAbIZ30QAAAD/xAAUEAEAAAAAAAAAAAAAAAAAAAAw/9oACAEBAAEFAh//xAAUEQEAAAAAAAAAAAAAAAAAAAAw/9oACAEDAQE/AR//xAAUEQEAAAAAAAAAAAAAAAAAAAAw/9oACAECAQE/AR//xAAUEAEAAAAAAAAAAAAAAAAAAAAw/9oACAEBAAY/Ah//xAAUEAEAAAAAAAAAAAAAAAAAAAAw/9oACAEBAAE/IR//2gAMAwEAAgADAAAAEAAAAB//xAAUEQEAAAAAAAAAAAAAAAAAAAAw/9oACAEDAQE/EB//xAAUEQEAAAAAAAAAAAAAAAAAAAAw/9oACAECAQE/EB//xAAUEAEAAAAAAAAAAAAAAAAAAAAw/9oACAEBAAE/EB//2Q=="
       const png = "iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAIAAAAC64paAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAB3RJTUUH5QwMEBEn745HIwAAAB1pVFh0Q29tbWVudAAAAAAAQ3JlYXRlZCB3aXRoIEdJTVBkLmUHAAAAdElEQVQ4y2NkwA/M/uORZGKgAAycZkbCSnB7m8bO/n+SXGf//w91M6M5Bc7Gaj8jMdaiaDAnQjNWnegGvefnh7AEP34kYCeGTQjNECDw4QMx2rAH2AcBASJ1Yg9tZP2MeEMUe1RB9DMSSgW0SZ6Ynh9M+RkAVKIcx4/3GikAAAAASUVORK5CYII="
 
-      const render = sinon.spy(ImageURLView.prototype, "render")
+      using render = restorable(sinon.spy(ImageURLView.prototype, "render"))
 
-      try {
-        const p0 = fig([200, 200])
-        p0.image_url([data_url(jpg, "image/jpeg")], 0, 0, 10, 10)
-        await display(p0)
-        expect(render.callCount).to.be.equal(1)
+      const p0 = fig([200, 200])
+      p0.image_url([data_url(jpg, "image/jpeg")], 0, 0, 10, 10)
+      await display(p0)
+      expect(render.callCount).to.be.equal(1)
+      render.resetHistory()
 
-        render.resetHistory()
+      const p1 = fig([200, 200])
+      p1.image_url([data_url(png, "image/png")], 0, 0, 10, 10)
+      await display(p1)
+      expect(render.callCount).to.be.equal(1)
+      render.resetHistory()
 
-        const p1 = fig([200, 200])
-        p1.image_url([data_url(png, "image/png")], 0, 0, 10, 10)
-        await display(p1)
-        expect(render.callCount).to.be.equal(1)
+      const url = URL.createObjectURL(new Blob([base64_to_buffer(png)]))
+      const p2 = fig([200, 200])
+      p2.image_url([url], 0, 0, 10, 10)
+      await display(p2)
+      expect(render.callCount).to.be.within(1, 2)
+      render.resetHistory()
 
-        render.resetHistory()
-
-        const url = URL.createObjectURL(new Blob([base64_to_buffer(png)]))
-        const p2 = fig([200, 200])
-        p2.image_url([url], 0, 0, 10, 10)
-        await display(p2)
-        expect(render.callCount).to.be.above(0)
-        expect(render.callCount).to.be.below(3)
-
-        render.resetHistory()
-
-        const p3 = fig([200, 200])
-        p3.image_url(["/assets/images/pattern.png"], 0, 0, 10, 10)
-        await display(p3)
-        expect(render.callCount).to.be.above(0)
-        expect(render.callCount).to.be.below(3)
-      } finally {
-        render.restore()
-      }
+      const p3 = fig([200, 200])
+      p3.image_url(["/assets/images/pattern.png"], 0, 0, 10, 10)
+      await display(p3)
+      expect(render.callCount).to.be.within(1, 2)
+      render.resetHistory()
     })
   })
 
@@ -461,7 +473,7 @@ describe("Bug", () => {
       const p = fig([100, 100], {
         x_range: [0, 2], y_range: [0, 2],
         x_axis_type: null, y_axis_type: null,
-        tools: "tap",
+        tools: [new TapTool({mode: "replace"})],
         min_border: 10,
       })
       const r = p.block({x: [0, 1], y: [0, 1], width: 1, height: 1})
@@ -469,32 +481,18 @@ describe("Bug", () => {
       const {view} = await display(p)
       expect(r.data_source.selected.indices).to.be.equal([])
 
-      async function tap(sx: number, sy: number) {
-        const ui = view.canvas_view.ui_event_bus
-        const {left, top} = offset_bbox(ui.hit_area)
-        const ev = new MouseEvent("click", {clientX: left + sx, clientY: top + sy})
-        const hev = {
-          type: "tap",
-          deltaX: 0,
-          deltaY: 0,
-          scale: 1,
-          rotation: 0,
-          srcEvent: ev,
-        }
-        ui._tap(hev) // can't use dispatchEvent(), because of doubletap recognizer
-        await view.ready
-      }
+      const actions = new PlotActions(view, {units: "screen"})
 
-      await tap(30, 70) // click on 0
+      await actions.tap(xy(30, 70)) // click on 0
       expect(r.data_source.selected.indices).to.be.equal([0])
 
-      await tap(30, 30) // click on empty
+      await actions.tap(xy(30, 30)) // click on empty
       expect(r.data_source.selected.indices).to.be.equal([])
 
-      await tap(70, 30) // click on 1
+      await actions.tap(xy(70, 30)) // click on 1
       expect(r.data_source.selected.indices).to.be.equal([1])
 
-      await tap(5, 5)   // click off frame
+      await actions.tap(xy(5, 5))   // click off frame
       expect(r.data_source.selected.indices).to.be.equal([1])
     })
   })
@@ -527,7 +525,7 @@ describe("Bug", () => {
       const stub = sinon.stub(CopyToolView.prototype, "copy")
       stub.callsFake(async () => undefined)
       try {
-        await click(copy_btn_view.el)
+        await tap(copy_btn_view.el)
         await defer()
         expect(stub.callCount).to.be.equal(1)
       } finally {
@@ -973,6 +971,34 @@ describe("Bug", () => {
     })
   })
 
+  describe("in issue #13556", () => {
+    it("doesn't allow creation of correct DOM elements for imported stylesheets", async () => {
+      const style0 = new GlobalImportedStyleSheet({url: "/assets/css/global.css"})
+      const style1 = new ImportedStyleSheet({url: "/assets/css/local.css"})
+
+      const style2 = new GlobalInlineStyleSheet({css: ":root { --global-inline: 1; }"})
+      const style3 = new InlineStyleSheet({css: ":host { --local-inline: 1; }"})
+
+      const pane = new Pane({stylesheets: [style0, style1, style2, style3]})
+      const {view} = await display(pane, [100, 100])
+
+      expect(document.head.querySelectorAll("link[href='/assets/css/global.css']").length).to.be.equal(1)
+      expect(view.shadow_el.querySelectorAll("link[href='/assets/css/local.css']").length).to.be.equal(1)
+
+      expect([...document.head.querySelectorAll("style")].filter((el) => el.textContent?.includes("--global-inline: 1")).length).to.be.equal(1)
+      expect([...view.shadow_el.querySelectorAll("style")].filter((el) => el.textContent?.includes("--local-inline: 1")).length).to.be.equal(1)
+
+      await poll(() => [...document.styleSheets].some((style) => style.href?.includes("global.css")))
+      await poll(() => [...view.shadow_el.styleSheets].some((style) => style.href?.includes("global.css")))
+
+      expect(getComputedStyle(document.documentElement).getPropertyValue("--global-imported")).to.be.equal("1")
+      expect(getComputedStyle(view.el).getPropertyValue("--local-imported")).to.be.equal("1")
+
+      expect(getComputedStyle(document.documentElement).getPropertyValue("--global-inline")).to.be.equal("1")
+      expect(getComputedStyle(view.el).getPropertyValue("--local-inline")).to.be.equal("1")
+    })
+  })
+
   describe("in issue #13500", () => {
     function fields<T extends object>(data: T): {[K in keyof T]: Field} {
       const result: {[key: string]: Field} = {}
@@ -1011,7 +1037,7 @@ describe("Bug", () => {
         const {x, y, width, height, color} = fields(data)
         const renderer = p.rect({x, y, width, height, color, source})
 
-        const edit_tool = new BoxEditTool({renderers: [renderer], empty_value: "green"})
+        const edit_tool = new BoxEditTool({renderers: [renderer], default_overrides: {color: "green"}})
         p.add_tools(edit_tool)
         p.toolbar.active_drag = edit_tool
 
@@ -1047,7 +1073,7 @@ describe("Bug", () => {
         const {x, y, width, height, color} = fields(data)
         const renderer = p.rect({x, y, width, height, color, source})
 
-        const edit_tool = new BoxEditTool({renderers: [renderer], empty_value: "green"})
+        const edit_tool = new BoxEditTool({renderers: [renderer], default_overrides: {color: "green"}})
         p.add_tools(edit_tool)
         p.toolbar.active_drag = edit_tool
 
@@ -1083,7 +1109,7 @@ describe("Bug", () => {
         const {left, right, top, bottom, color} = fields(data)
         const renderer = p.quad({left, right, top, bottom, color, source})
 
-        const edit_tool = new BoxEditTool({renderers: [renderer], empty_value: "green"})
+        const edit_tool = new BoxEditTool({renderers: [renderer], default_overrides: {color: "green"}})
         p.add_tools(edit_tool)
         p.toolbar.active_drag = edit_tool
 
@@ -1119,7 +1145,7 @@ describe("Bug", () => {
         const {y, height, left, right, color} = fields(data)
         const renderer = p.hbar({y, height, left, right, color, source})
 
-        const edit_tool = new BoxEditTool({renderers: [renderer], empty_value: "green"})
+        const edit_tool = new BoxEditTool({renderers: [renderer], default_overrides: {color: "green"}})
         p.add_tools(edit_tool)
         p.toolbar.active_drag = edit_tool
 
@@ -1155,7 +1181,7 @@ describe("Bug", () => {
         const {x, width, top, bottom, color} = fields(data)
         const renderer = p.vbar({x, width, top, bottom, color, source})
 
-        const edit_tool = new BoxEditTool({renderers: [renderer], empty_value: "green"})
+        const edit_tool = new BoxEditTool({renderers: [renderer], default_overrides: {color: "green"}})
         p.add_tools(edit_tool)
         p.toolbar.active_drag = edit_tool
 
@@ -1189,7 +1215,7 @@ describe("Bug", () => {
         const {y0, y1, color} = fields(data)
         const renderer = p.hstrip({y0, y1, color, source})
 
-        const edit_tool = new BoxEditTool({renderers: [renderer], empty_value: "green"})
+        const edit_tool = new BoxEditTool({renderers: [renderer], default_overrides: {color: "green"}})
         p.add_tools(edit_tool)
         p.toolbar.active_drag = edit_tool
 
@@ -1221,7 +1247,7 @@ describe("Bug", () => {
         const {x0, x1, color} = fields(data)
         const renderer = p.vstrip({x0, x1, color, source})
 
-        const edit_tool = new BoxEditTool({renderers: [renderer], empty_value: "green"})
+        const edit_tool = new BoxEditTool({renderers: [renderer], default_overrides: {color: "green"}})
         p.add_tools(edit_tool)
         p.toolbar.active_drag = edit_tool
 
@@ -1236,6 +1262,249 @@ describe("Bug", () => {
           color: ["red", "green"],
         })
       })
+    })
+  })
+
+  describe("in issue #13555", () => {
+    it("doesn't allow to compute correct image index for inverted ranges", async () => {
+      const n = 5
+
+      async function plot(x_flipped: boolean, y_flipped: boolean) {
+        const x = linspace(0, 10, n)
+        const y = linspace(0, 10, n)
+
+        const values: number[] = []
+        for (const yi of y) {
+          for (const xi of x) {
+            values.push(xi + yi)
+          }
+        }
+        const image = ndarray(values, {dtype: "float64", shape: [n, n]})
+
+        const x_range = new DataRange1d({flipped: x_flipped})
+        const y_range = new DataRange1d({flipped: y_flipped})
+
+        const p = fig([300, 300], {x_range, y_range, toolbar_location: "right"})
+
+        const color_mapper = new LinearColorMapper({palette: Viridis256})
+        const img = p.image({image: [image], x: 0, y: 0, dw: 2*n, dh: 2*n, color_mapper})
+
+        const hover = new TapTool({renderers: [img], behavior: "select"})
+        p.add_tools(hover)
+
+        const {view} = await display(p)
+        return {view, img}
+      }
+
+      function image_index(i: number, j: number) {
+        return [{index: 0, i, j, flat_index: j*n + i}]
+      }
+
+      async function test(options: {x_flipped: boolean, y_flipped: boolean}) {
+        const {x_flipped, y_flipped} = options
+
+        const {view, img} = await plot(x_flipped, y_flipped)
+        const actions = new PlotActions(view)
+
+        await actions.tap({x: 1, y: 1})
+        await view.ready
+        expect(img.data_source.selected.image_indices).to.be.equal(image_index(0, 0))
+        img.data_source.selected.clear()
+        await view.ready
+
+        await actions.tap({x: 2*n-1, y: 1})
+        await view.ready
+        expect(img.data_source.selected.image_indices).to.be.equal(image_index(n-1, 0))
+        img.data_source.selected.clear()
+        await view.ready
+
+        await actions.tap({x: 1, y: 2*n-1})
+        await view.ready
+        expect(img.data_source.selected.image_indices).to.be.equal(image_index(0, n-1))
+        img.data_source.selected.clear()
+        await view.ready
+
+        await actions.tap({x: 2*n-1, y: 2*n-1})
+        await view.ready
+        expect(img.data_source.selected.image_indices).to.be.equal(image_index(n-1, n-1))
+        img.data_source.selected.clear()
+        await view.ready
+      }
+
+      await test({x_flipped: false, y_flipped: false})
+      await test({x_flipped: true,  y_flipped: false})
+      await test({x_flipped: false, y_flipped: true})
+      await test({x_flipped: true,  y_flipped: true})
+    })
+  })
+
+  describe("in issue #13293", () => {
+    function indices(gv: GlyphRendererView, {x, y}: XY) {
+      const sx = gv.coordinates.x_scale.compute(x)
+      const sy = gv.coordinates.y_scale.compute(y)
+      const htr = gv.hit_test({type: "point", sx, sy})
+      expect_not_null(htr)
+      return htr.line_indices
+    }
+
+    describe("doesn't allow to correctly hit-test VAreaStep", () => {
+      it("with step_mode=before", async () => {
+        const p = fig([300, 300], {title: "varea_step: before"})
+        const g = p.varea_step({
+          x: [1, 2, 3, 4, 5],
+          y1: [12, 16, 14, 13, 15],
+          y2: [1, 4, 2, 1, 3],
+          step_mode: "before",
+        })
+        p.add_tools(new HoverTool({tooltips: "i=$index, x=@x, y1=@y1, y2=@y2"}))
+
+        const {view} = await display(p)
+        const gv = view.owner.get_one(g)
+
+        expect(indices(gv, xy(0.75, 10))).to.be.equal([])
+        expect(indices(gv, xy(1.25, 10))).to.be.equal([1])
+        expect(indices(gv, xy(1.75, 10))).to.be.equal([1])
+        expect(indices(gv, xy(2.25, 10))).to.be.equal([2])
+        expect(indices(gv, xy(2.75, 10))).to.be.equal([2])
+      })
+
+      it("with step_mode=center", async () => {
+        const p = fig([300, 300], {title: "varea_step: center"})
+        const g = p.varea_step({
+          x: [1, 2, 3, 4, 5],
+          y1: [12, 16, 14, 13, 15],
+          y2: [1, 4, 2, 1, 3],
+          step_mode: "center",
+        })
+        p.add_tools(new HoverTool({tooltips: "i=$index, x=@x, y1=@y1, y2=@y2"}))
+
+        const {view} = await display(p)
+        const gv = view.owner.get_one(g)
+
+        expect(indices(gv, xy(0.75, 10))).to.be.equal([])
+        expect(indices(gv, xy(1.25, 10))).to.be.equal([0])
+        expect(indices(gv, xy(1.75, 10))).to.be.equal([1])
+        expect(indices(gv, xy(2.25, 10))).to.be.equal([1])
+        expect(indices(gv, xy(2.75, 10))).to.be.equal([2])
+      })
+
+      it("with step_mode=after", async () => {
+        const p = fig([300, 300], {title: "varea_step: after"})
+        const g = p.varea_step({
+          x: [1, 2, 3, 4, 5],
+          y1: [12, 16, 14, 13, 15],
+          y2: [1, 4, 2, 1, 3],
+          step_mode: "after",
+        })
+        p.add_tools(new HoverTool({tooltips: "i=$index, x=@x, y1=@y1, y2=@y2"}))
+
+        const {view} = await display(p)
+        const gv = view.owner.get_one(g)
+
+        expect(indices(gv, xy(0.75, 10))).to.be.equal([])
+        expect(indices(gv, xy(1.25, 10))).to.be.equal([0])
+        expect(indices(gv, xy(1.75, 10))).to.be.equal([0])
+        expect(indices(gv, xy(2.25, 10))).to.be.equal([1])
+        expect(indices(gv, xy(2.75, 10))).to.be.equal([1])
+      })
+    })
+
+    describe("doesn't allow to correctly hit-test HAreaStep", () => {
+      it("with step_mode=before", async () => {
+        const p = fig([300, 300], {title: "harea_step: before"})
+        const g = p.harea_step({
+          y: [1, 2, 3, 4, 5],
+          x1: [1, 4, 2, 1, 3],
+          x2: [12, 16, 14, 13, 15],
+          step_mode: "before",
+        })
+        p.add_tools(new HoverTool({tooltips: "i=$index, x1=@x1, x2=@x2, y=@y"}))
+
+        const {view} = await display(p)
+        const gv = view.owner.get_one(g)
+
+        expect(indices(gv, xy(10, 0.75))).to.be.equal([])
+        expect(indices(gv, xy(10, 1.25))).to.be.equal([1])
+        expect(indices(gv, xy(10, 1.75))).to.be.equal([1])
+        expect(indices(gv, xy(10, 2.25))).to.be.equal([2])
+        expect(indices(gv, xy(10, 2.75))).to.be.equal([2])
+      })
+
+      it("with step_mode=center", async () => {
+        const p = fig([300, 300], {title: "harea_step: center"})
+        const g = p.harea_step({
+          y: [1, 2, 3, 4, 5],
+          x1: [1, 4, 2, 1, 3],
+          x2: [12, 16, 14, 13, 15],
+          step_mode: "center",
+        })
+        p.add_tools(new HoverTool({tooltips: "i=$index, x1=@x1, x2=@x2, y=@y"}))
+
+        const {view} = await display(p)
+        const gv = view.owner.get_one(g)
+
+        expect(indices(gv, xy(10, 0.75))).to.be.equal([])
+        expect(indices(gv, xy(10, 1.25))).to.be.equal([0])
+        expect(indices(gv, xy(10, 1.75))).to.be.equal([1])
+        expect(indices(gv, xy(10, 2.25))).to.be.equal([1])
+        expect(indices(gv, xy(10, 2.75))).to.be.equal([2])
+      })
+
+      it("with step_mode=after", async () => {
+        const p = fig([300, 300], {title: "harea_step: after"})
+        const g = p.harea_step({
+          y: [1, 2, 3, 4, 5],
+          x1: [1, 4, 2, 1, 3],
+          x2: [12, 16, 14, 13, 15],
+          step_mode: "after",
+        })
+        p.add_tools(new HoverTool({tooltips: "i=$index, x1=@x1, x2=@x2, y=@y"}))
+
+        const {view} = await display(p)
+        const gv = view.owner.get_one(g)
+
+        expect(indices(gv, xy(10, 0.75))).to.be.equal([])
+        expect(indices(gv, xy(10, 1.25))).to.be.equal([0])
+        expect(indices(gv, xy(10, 1.75))).to.be.equal([0])
+        expect(indices(gv, xy(10, 2.25))).to.be.equal([1])
+        expect(indices(gv, xy(10, 2.75))).to.be.equal([1])
+      })
+    })
+  })
+
+  describe("in issue #13507", () => {
+    it("doesn't allow to emit RangesUpdate on plots linked by RangeTool's ranges", async () => {
+      const source = new ColumnDataSource({
+        data: {
+          x: [1, 2, 3, 4, 5],
+          y: [1, 2, 3, 4, 5],
+        },
+      })
+
+      const target_plot = fig([300, 200], {x_range: [1.5, 3.5], y_range: [1.5, 3.5]})
+      target_plot.scatter({size: 20, source})
+
+      const range_plot = fig([300, 200])
+      range_plot.scatter({size: 20, source})
+
+      const range_tool = new RangeTool({
+        x_range: target_plot.x_range,
+        y_range: target_plot.y_range,
+      })
+      range_plot.add_tools(range_tool)
+
+      const updates = {target: false, range: false}
+      target_plot.on_event(RangesUpdate, () => updates.target = true)
+      range_plot.on_event(RangesUpdate, () => updates.range = true)
+
+      const layout = new Column({children: [target_plot, range_plot]})
+      const {view} = await display(layout)
+
+      const pv = view.owner.get_one(range_plot)
+      await actions(pv).pan(xy(2.5, 2.5), xy(3.5, 3.5))
+      await view.ready
+
+      expect(updates.target && updates.range).to.be.true
     })
   })
 })

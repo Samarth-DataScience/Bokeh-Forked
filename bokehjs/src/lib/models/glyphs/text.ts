@@ -1,4 +1,3 @@
-import type {XYGlyphData} from "./xy_glyph"
 import {XYGlyph, XYGlyphView} from "./xy_glyph"
 import type {PointGeometry} from "core/geometry"
 import * as mixins from "core/property_mixins"
@@ -12,6 +11,7 @@ import {BBox} from "core/util/bbox"
 import {enumerate} from "core/util/iterator"
 import type {Rect} from "core/util/affine"
 import {rotate_around, AffineTransform} from "core/util/affine"
+import type {GraphicsBox} from "core/graphics"
 import {TextBox} from "core/graphics"
 import type {TextAnchor} from "../common/kinds"
 import {BorderRadius, Padding} from "../common/kinds"
@@ -20,32 +20,13 @@ import {round_rect} from "../common/painting"
 
 class TextAnchorSpec extends p.DataSpec<TextAnchor> {}
 
-export type TextData = XYGlyphData & p.UniformsOf<Text.Mixins> & {
-  readonly text: p.Uniform<string | null>
-  readonly angle: p.Uniform<number>
-  readonly x_offset: p.Uniform<number>
-  readonly y_offset: p.Uniform<number>
-  readonly anchor: p.Uniform<TextAnchor>
-
-  labels: (TextBox | null)[]
-
-  swidth: Float32Array
-  sheight: Float32Array
-
-  anchor_: p.Uniform<XY<number>> // can't resolve in v_materialize() due to dependency on other properties
-  padding: LRTB<number>
-  border_radius: Corners<number>
-}
-
-export interface TextView extends TextData {}
+export interface TextView extends Text.Data {}
 
 export class TextView extends XYGlyphView {
   declare model: Text
   declare visuals: Text.Visuals
 
-  override after_visuals(): void {
-    super.after_visuals()
-
+  protected async _build_labels(): Promise<void> {
     const {text} = this.base ?? this
     this.labels = Array.from(text, (value) => {
       if (value == null) {
@@ -55,6 +36,14 @@ export class TextView extends XYGlyphView {
         return new TextBox({text})
       }
     })
+  }
+
+  override async _set_lazy_data(): Promise<void> {
+    await this._build_labels()
+  }
+
+  override after_visuals(): void {
+    super.after_visuals()
 
     const n = this.data_size
     const {anchor} = this.base ?? this
@@ -85,8 +74,9 @@ export class TextView extends XYGlyphView {
     const {left, right, top, bottom} = this.padding
 
     for (const [label, i] of enumerate(this.labels)) {
-      if (label == null)
+      if (label == null) {
         continue
+      }
 
       label.visuals = this.visuals.text.values(i)
       label.position = {sx: 0, sy: 0, x_anchor: "left", y_anchor: "top"}
@@ -101,8 +91,8 @@ export class TextView extends XYGlyphView {
     }
   }
 
-  protected _render(ctx: Context2d, indices: number[], data?: TextData): void {
-    const {sx, sy, x_offset, y_offset, angle} = data ?? this
+  protected _render(ctx: Context2d, indices: number[], data?: Partial<Text.Data>): void {
+    const {sx, sy, x_offset, y_offset, angle} = {...this, ...data}
     const {text, background_fill, background_hatch, border_line} = this.visuals
     const {anchor_: anchor, border_radius, padding} = this
     const {labels, swidth, sheight} = this
@@ -265,6 +255,17 @@ export namespace Text {
     border_line: visuals.LineVector
     background_fill: visuals.FillVector
     background_hatch: visuals.HatchVector
+  }
+
+  export type Data = p.GlyphDataOf<Props> & {
+    labels: (GraphicsBox | null)[]
+
+    swidth: Float32Array
+    sheight: Float32Array
+
+    anchor_: p.Uniform<XY<number>> // can't resolve in v_materialize() due to dependency on other properties
+    padding: LRTB<number>
+    border_radius: Corners<number>
   }
 }
 

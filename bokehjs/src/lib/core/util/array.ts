@@ -196,6 +196,25 @@ export function difference<T>(array: Arrayable<T>, ...arrays: Arrayable<T>[]): A
   return filter(array, (value) => !rest.has(value))
 }
 
+export function symmetric_difference<T>(array0: Arrayable<T>, array1: Arrayable<T>): Arrayable<T> {
+  const set0 = new Set(array0)
+  const set1 = new Set(array1)
+
+  const result: T[] = []
+  for (const val of set0) {
+    if (!set1.has(val)) {
+      result.push(val)
+    }
+  }
+  for (const val of set1) {
+    if (!set0.has(val)) {
+      result.push(val)
+    }
+  }
+
+  return result
+}
+
 export function remove_at<T>(array: T[], i: number): T[] {
   assert(isInteger(i) && i >= 0)
   const result = copy(array)
@@ -256,6 +275,15 @@ export function pairwise<T, U>(array: T[], fn: (prev: T, next: T) => U): U[] {
     result[i] = fn(array[i], array[i+1])
   }
 
+  return result
+}
+
+export function elementwise<T, U>(array0: Arrayable<T>, array1: Arrayable<T>, fn: (a: T, b: T) => U): U[] {
+  const n = Math.min(array0.length, array1.length)
+  const result: U[] = Array(n)
+  for (let i = 0; i < n; i++) {
+    result[i] = fn(array0[i], array1[i])
+  }
   return result
 }
 

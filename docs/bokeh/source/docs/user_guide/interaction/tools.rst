@@ -347,9 +347,9 @@ from properties on the |Selection| object for a glyph data source. For example:
 will hold the selected indices in the common case of a "scatter" type glyph.
 
 .. note::
-    Complete the selection by making a double left-click or tapping. To make a
-    multiple selection, press the SHIFT key. To clear the selection, press the
-    ESC key.
+    Complete the selection by making press tap on the canvas. To make
+    a multiple selection, press the SHIFT key. To clear the selection,
+    press the ESC key.
 
 TapTool
 ~~~~~~~
@@ -810,9 +810,24 @@ as a list:
 The tool automatically modifies the columns of the data source
 corresponding to the ``x``, ``y``, ``width``, and ``height`` values of
 the glyph. Any additional columns in the data source will be padded with
-the declared ``empty_value`` when adding a new point. Any newly added
+their respective default values when adding a new point. Any newly added
 points will be inserted in the ``ColumnDataSource`` of the first supplied
 renderer.
+
+.. _ug_interaction_tools_default_values:
+
+Interaction tools default values
+''''''''''''''''''''''''''''''''
+
+Columns' default values are computed based on (in order):
+
+1. Tool's ``default_overrides``, which are user provided.
+2. Data source's ``default_values``, which are user provided.
+3. Data source's inferred default values, which are computed by the data
+   source based on column's ``dtype`` or contents.
+4. Tool's ``empty_value``, which is user provided and is the measure of
+   last resort when a sensible value can't be determined in the previous
+   steps.
 
 It is often useful to limit the number of elements that can be
 drawn. For example, when specifying a certain number of regions of interest.
@@ -831,8 +846,8 @@ showing the pressed keys. The ``BoxEditTool`` can **Add**, **Move**
 and **Delete** boxes on plots:
 
 Add box
-  Hold shift, then click and drag anywhere on the plot or double tap
-  once to start drawing. Move the mouse and double tap again to
+  Hold shift, then click and drag anywhere on the plot or press tap
+  once to start drawing. Move the mouse and press tap again to
   finish drawing.
 
 Move box
@@ -876,10 +891,10 @@ you must pass the renderers to be edited as a list:
 
 The tool automatically modifies the columns on the data source
 corresponding to the ``xs`` and ``ys`` values of the glyph. Any
-additional columns in the data source will be padded with the declared
-``empty_value`` when adding a new point. Any newly added points will
-be inserted in the ``ColumnDataSource`` of the first supplied
-renderer.
+additional columns in the data source will be padded in accordance
+to :ref:`ug_interaction_tools_default_values` procedure when adding
+a new point.  Any newly added points will be inserted in the
+``ColumnDataSource`` of the first supplied renderer.
 
 It is also often useful to limit the number of elements that can be
 drawn. For example, when specifying a specific number of regions of interest.
@@ -930,10 +945,10 @@ you must pass the renderers to be edited as a list:
 
 The tool automatically modifies the columns on the data source
 corresponding to the ``x`` and ``y`` values of the glyph. Any
-additional columns in the data source will be padded with the declared
-``empty_value`` when adding a new point. Any newly added points will
-be inserted in the ``ColumnDataSource`` of the first supplied
-renderer.
+additional columns in the data source will be padded in accordance
+to :ref:`ug_interaction_tools_default_values` procedure when adding
+a new point. Any newly added points will be inserted in the
+``ColumnDataSource`` of the first supplied renderer.
 
 It is also often useful to limit the number of elements that can be
 drawn. Using the ``num_objects`` property, you can ensure that once the
@@ -989,10 +1004,10 @@ you must pass the renderers to be edited as a list.
 
 The tool automatically modifies the columns on the data source
 corresponding to the ``xs`` and ``ys`` values of the glyph. Any
-additional columns in the data source will be padded with the declared
-``empty_value``, when adding a new point. Any newly added patch or
-multi-line will be inserted on the ``ColumnDataSource`` of the first
-supplied renderer.
+additional columns in the data source will be padded in accordance
+to :ref:`ug_interaction_tools_default_values` procedure when adding
+a new point. Any newly added patch or multi-line will be inserted in
+the ``ColumnDataSource`` of the first supplied renderer.
 
 It is also often useful to limit the number of elements that can be
 drawn. For example, when specifying a specific number of regions of interest.
@@ -1016,8 +1031,8 @@ showing the pressed keys. The ``PolyDrawTool`` can **Add**, **Move**,
 and **Delete** patches and multi-lines:
 
 Add patch/multi-line
-  Double tap to add the first vertex, then use tap to add each
-  subsequent vertex. To finalize the draw action, double tap to insert
+  Press tap to add the first vertex, then use tap to add each
+  subsequent vertex. To finalize the draw action, press tap to insert
   the final vertex or press the ESC key.
 
 Move patch/multi-line
@@ -1046,8 +1061,9 @@ render a point-like Glyph (of ``XYGlyph`` type).
 
 The tool automatically modifies the columns on the data source
 corresponding to the ``xs`` and ``ys`` values of the glyph. Any
-additional columns in the data source will be padded with the declared
-``empty_value``, when adding a new point.
+additional columns in the data source will be padded in accordance
+to :ref:`ug_interaction_tools_default_values` procedure when adding
+a new point.
 
 .. raw:: html
 
@@ -1060,12 +1076,12 @@ showing the pressed keys. The ``PolyEditTool`` can **Add**, **Move**,
 and **Delete** vertices on existing patches and multi-lines:
 
 Show vertices
-  Double tap an existing patch or multi-line.
+  Press tap an existing patch or multi-line.
 
 Add vertex
-  Double tap an existing vertex to select it. The tool will draw the
+  Press tap an existing vertex to select it. The tool will draw the
   next point. To add it, tap in a new location. To finish editing
-  and add a point, double tap. Otherwise press the ESC key to cancel.
+  and add a point, press tap. Otherwise press the ESC key to cancel.
 
 Move vertex
   Drag an existing vertex and let go of the mouse button to release

@@ -30,7 +30,7 @@ You can also use the |select| method to query on other attributes as well:
 
 .. code-block:: python
 
-    >>> p.circle(0, 0, name="mycircle")
+    >>> p.circle(0, 0, radius=1, name="mycircle")
     <bokeh.plotting.figure at 0x106608810>
 
     >>> p.select(name="mycircle")
@@ -165,7 +165,7 @@ identify which ``GlyphRenderer`` you want to customize. If you are using the
 
 .. code-block:: python
 
-    >>> r = p.circle([1,2,3,4,5], [2,5,8,2,7])
+    >>> r = p.circle([1,2,3,4,5], [2,5,8,2,7], radius=1)
     >>> r
     <bokeh.models.renderers.GlyphRenderer at 0x106a4c810>
 
@@ -219,7 +219,7 @@ If you use the |bokeh.models| interface, use the
     p = Plot()
     source = ColumnDataSource(dict(x=[1, 2, 3], y=[1, 2, 3]))
 
-    initial_circle = Circle(x='x', y='y', fill_color='blue', size=50)
+    initial_circle = Circle(x='x', y='y', fill_color='blue', radius=1)
     selected_circle = Circle(fill_alpha=1, fill_color="firebrick", line_color=None)
     nonselected_circle = Circle(fill_alpha=0.2, fill_color="blue", line_color="firebrick")
 
@@ -227,11 +227,6 @@ If you use the |bokeh.models| interface, use the
                 initial_circle,
                 selection_glyph=selected_circle,
                 nonselection_glyph=nonselected_circle)
-
-.. warning::
-    When rendering, Bokeh considers only the *visual* properties of
-    ``selection_glyph`` and ``nonselection_glyph``. Changing
-    positions, sizes, etc., will have no effect.
 
 .. _ug_styling_plots_hover_inspections:
 
@@ -250,10 +245,6 @@ This example uses the first method of passing a color parameter with the
 
 .. bokeh-plot:: __REPO__/examples/styling/plots/glyph_hover.py
     :source-position: above
-
-.. warning::
-    When rendering, Bokeh considers only the *visual* properties of
-    ``hover_glyph``. Changing positions, sizes, etc. will have no effect.
 
 .. _ug_styling_plots_axes:
 

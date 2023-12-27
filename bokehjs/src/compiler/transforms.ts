@@ -59,6 +59,12 @@ export function relativize_modules(relativize: (file: string, module_path: strin
               const {expression, typeArguments} = node
               return factory.updateCallExpression(node, expression, typeArguments, [moduleSpecifier])
             }
+          } else if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument)) {
+            const literal = relativize_specifier(context, root, node.argument.literal)
+            if (literal != null) {
+              const argument = factory.updateLiteralTypeNode(node.argument, literal)
+              return factory.updateImportTypeNode(node, argument, node.attributes, node.qualifier, node.typeArguments, node.isTypeOf)
+            }
           }
 
           return ts.visitEachChild(node, visit, context)
@@ -428,7 +434,7 @@ export function wrap_in_function(module_name: string) {
   }
 }
 
-export function parse_es(file: string, code?: string, target: ts.ScriptTarget = ts.ScriptTarget.ES2017): ts.SourceFile {
+export function parse_es(file: string, code?: string, target: ts.ScriptTarget = ts.ScriptTarget.ES2020): ts.SourceFile {
   return ts.createSourceFile(file, code != null ? code : ts.sys.readFile(file)!, target, true, ts.ScriptKind.JS)
 }
 

@@ -1,6 +1,5 @@
 import type {PointGeometry} from "core/geometry"
-import type {FloatArray, ScreenArray} from "core/types"
-import type {AreaData} from "./area"
+import type {Arrayable} from "core/types"
 import {Area, AreaView} from "./area"
 import type {Context2d} from "core/util/canvas"
 import type {SpatialIndex} from "core/util/spatial"
@@ -10,17 +9,7 @@ import {StepMode} from "core/enums"
 import {flip_step_mode} from "core/util/flip_step_mode"
 import {Selection} from "../selections/selection"
 
-export type VAreaStepData = AreaData & {
-  _x: FloatArray
-  _y1: FloatArray
-  _y2: FloatArray
-
-  sx: ScreenArray
-  sy1: ScreenArray
-  sy2: ScreenArray
-}
-
-export interface VAreaStepView extends VAreaStepData {}
+export interface VAreaStepView extends VAreaStep.Data {}
 
 export class VAreaStepView extends AreaView {
   declare model: VAreaStep
@@ -28,32 +17,34 @@ export class VAreaStepView extends AreaView {
 
   protected _index_data(index: SpatialIndex): void {
     const {min, max} = Math
+    const {x, y1, y2} = this
 
     for (let i = 0; i < this.data_size; i++) {
-      const x = this._x[i]
-      const y1 = this._y1[i]
-      const y2 = this._y2[i]
-      index.add_rect(x, min(y1, y2), x, max(y1, y2))
+      const x_i = x[i]
+      const y1_i = y1[i]
+      const y2_i = y2[i]
+      index.add_rect(x_i, min(y1_i, y2_i), x_i, max(y1_i, y2_i))
     }
   }
 
-  protected _step_path(ctx: Context2d, mode: StepMode, sx: ScreenArray, sy: ScreenArray, from_i: number, to_i: number): void {
+  protected _step_path(ctx: Context2d, mode: StepMode, sx: Arrayable<number>, sy: Arrayable<number>, from_i: number, to_i: number): void {
     // Assume the path was already moved to the first point
     let prev_x = sx[from_i]
     let prev_y = sy[from_i]
     const idx_dir = from_i < to_i ? 1 : -1
     for (let i = from_i + idx_dir; i != to_i; i += idx_dir) {
       switch (mode) {
-        case "before":
+        case "before": {
           ctx.lineTo(prev_x, sy[i])
           ctx.lineTo(sx[i], sy[i])
           break
-        case "after":
+        }
+        case "after": {
           ctx.lineTo(sx[i], prev_y)
           ctx.lineTo(sx[i], sy[i])
           break
-        case "center":
-        {
+        }
+        case "center": {
           const mid_x = (prev_x + sx[i]) / 2
           ctx.lineTo(mid_x, prev_y)
           ctx.lineTo(mid_x, sy[i])
@@ -66,8 +57,8 @@ export class VAreaStepView extends AreaView {
     }
   }
 
-  protected _render(ctx: Context2d, _indices: number[], data?: VAreaStepData): void {
-    const {sx, sy1, sy2} = data ?? this
+  protected _render(ctx: Context2d, _indices: number[], data?: Partial<VAreaStep.Data>): void {
+    const {sx, sy1, sy2} = {...this, ...data}
 
     const forward_mode = this.model.step_mode
     const backward_mode = flip_step_mode(this.model.step_mode)
@@ -90,47 +81,65 @@ export class VAreaStepView extends AreaView {
     return [scx, scy]
   }
 
-  protected override _hit_point(geometry: PointGeometry): Selection {
+  protected _line_selection_for(i: number): Selection {
+    return new Selection({line_indices: [i], selected_glyphs: [this.model], view: this})
+  }
+
+  protected _hit_point_before(geometry: PointGeometry): Selection {
     const {sx, sy1, sy2} = this
-
-    for (let i = 0; i < this.data_size - 1; i++) {
-      let px: number[]
-      let py: number[]
-
-      switch (this.model.step_mode) {
-        case "before":
-          px = [sx[i], sx[i+1], sx[i+1], sx[i]]
-          py = [sy1[i+1], sy1[i+1], sy2[i+1], sy2[i+1]]
-          break
-        case "after":
-          px = [sx[i], sx[i+1], sx[i+1], sx[i]]
-          py = [sy1[i], sy1[i], sy2[i], sy2[i]]
-          break
-        case "center":
-        {
-          const mid_x = (sx[i] + sx[i+1]) / 2
-          px = [sx[i], mid_x, mid_x, sx[i+1], sx[i+1], mid_x, mid_x, sx[i]]
-          py = [sy1[i], sy1[i], sy1[i+1], sy1[i+1], sy2[i+1], sy2[i+1], sy2[i], sy2[i]]
-          break
-        }
-      }
-
+    for (let i = 1; i < this.data_size; i++) {
+      const px = [sx[i-1], sx[i], sx[i], sx[i-1]]
+      const py = [sy1[i], sy1[i], sy2[i], sy2[i]]
       if (hittest.point_in_poly(geometry.sx, geometry.sy, px, py)) {
-        const result = new Selection()
-        result.add_to_selected_glyphs(this.model)
-        result.view = this
-        result.line_indices = [i]
-        return result
+        return this._line_selection_for(i)
       }
     }
-
     return new Selection()
   }
 
-  protected override _map_data(): void {
-    this.sx  = this.renderer.xscale.v_compute(this._x)
-    this.sy1 = this.renderer.yscale.v_compute(this._y1)
-    this.sy2 = this.renderer.yscale.v_compute(this._y2)
+  protected _hit_point_after(geometry: PointGeometry): Selection {
+    const {sx, sy1, sy2} = this
+    for (let i = 0; i < this.data_size - 1; i++) {
+      const px = [sx[i], sx[i+1], sx[i+1], sx[i]]
+      const py = [sy1[i], sy1[i], sy2[i], sy2[i]]
+      if (hittest.point_in_poly(geometry.sx, geometry.sy, px, py)) {
+        return this._line_selection_for(i)
+      }
+    }
+    return new Selection()
+  }
+
+  protected _hit_point_center(geometry: PointGeometry): Selection {
+    const {sx, sy1, sy2} = this
+
+    for (let i = 0; i < this.data_size; i++) {
+      const mid_prev_x = (sx[i - 1] + sx[i])/2 /* undefined for first */
+      const mid_next_x = (sx[i] + sx[i + 1])/2 /* undefined for last  */
+
+      const px = (() => {
+        if (i == 0) {
+          return [sx[i], mid_next_x, mid_next_x, sx[i]]
+        } else if (i == this.data_size - 1) {
+          return [mid_prev_x, sx[i], sx[i], mid_prev_x]
+        } else {
+          return [mid_prev_x, mid_next_x, mid_next_x, mid_prev_x]
+        }
+      })()
+      const py = [sy1[i], sy1[i], sy2[i], sy2[i]]
+
+      if (hittest.point_in_poly(geometry.sx, geometry.sy, px, py)) {
+        return this._line_selection_for(i)
+      }
+    }
+    return new Selection()
+  }
+
+  protected override _hit_point(geometry: PointGeometry): Selection {
+    switch (this.model.step_mode) {
+      case "before": return this._hit_point_before(geometry)
+      case "after":  return this._hit_point_after(geometry)
+      case "center": return this._hit_point_center(geometry)
+    }
   }
 }
 
@@ -138,13 +147,15 @@ export namespace VAreaStep {
   export type Attrs = p.AttrsOf<Props>
 
   export type Props = Area.Props & {
-    x: p.CoordinateSpec
-    y1: p.CoordinateSpec
-    y2: p.CoordinateSpec
+    x: p.XCoordinateSpec
+    y1: p.YCoordinateSpec
+    y2: p.YCoordinateSpec
     step_mode: p.Property<StepMode>
   }
 
   export type Visuals = Area.Visuals
+
+  export type Data = p.GlyphDataOf<Props>
 }
 
 export interface VAreaStep extends VAreaStep.Attrs {}

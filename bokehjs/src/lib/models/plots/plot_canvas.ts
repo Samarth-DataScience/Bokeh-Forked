@@ -1,8 +1,10 @@
 import {CartesianFrame} from "../canvas/cartesian_frame"
 import type {CanvasView, FrameBox} from "../canvas/canvas"
 import {Canvas} from "../canvas/canvas"
-import type {Renderer, RendererView} from "../renderers/renderer"
+import type {Renderer} from "../renderers/renderer"
+import {RendererView} from "../renderers/renderer"
 import type {DataRenderer} from "../renderers/data_renderer"
+import type {Range} from "../ranges/range"
 import type {Tool} from "../tools/tool"
 import {ToolProxy} from "../tools/tool_proxy"
 import type {Selection} from "../selections/selection"
@@ -185,19 +187,35 @@ export class PlotView extends LayoutDOMView implements Renderable {
     this.request_paint("everything")
   }
 
-  request_paint(to_invalidate: RendererView[] | RendererView | "everything"): void {
+  request_paint(to_invalidate: (Renderer | RendererView)[] | Renderer | RendererView | "everything"): void {
     this.invalidate_painters(to_invalidate)
     this.schedule_paint()
   }
 
-  invalidate_painters(to_invalidate: RendererView[] | RendererView | "everything"): void {
+  invalidate_painters(to_invalidate: (Renderer | RendererView)[] | Renderer | RendererView | "everything"): void {
     if (to_invalidate == "everything")
       this._invalidate_all = true
     else if (isArray(to_invalidate)) {
-      for (const renderer_view of to_invalidate)
-        this._invalidated_painters.add(renderer_view)
-    } else
-      this._invalidated_painters.add(to_invalidate)
+      for (const item of to_invalidate) {
+        const view = (() => {
+          if (item instanceof RendererView) {
+            return item
+          } else {
+            return this.renderer_view(item)!
+          }
+        })()
+        this._invalidated_painters.add(view)
+      }
+    } else {
+      const view = (() => {
+        if (to_invalidate instanceof RendererView) {
+          return to_invalidate
+        } else {
+          return this.renderer_view(to_invalidate)!
+        }
+      })()
+      this._invalidated_painters.add(view)
+    }
   }
 
   schedule_paint(): void {
@@ -582,13 +600,21 @@ export class PlotView extends LayoutDOMView implements Renderable {
     this.trigger_ranges_update_event()
   }
 
-  trigger_ranges_update_event(): void {
-    const {x_range, y_range} = this.model
-    const linked_plots = new Set([...x_range.plots, ...y_range.plots])
+  trigger_ranges_update_event(extra_ranges: Range[] = []): void {
+    /**
+     * Emits `RangesUpdate` event on all plots linked by all
+     * ranges managed by this plot's range manager and linked
+     * by additional context dependent ranges (`extra_ranges`).
+     */
+    const {x_ranges, y_ranges} = this._range_manager.ranges()
+    const ranges = [...x_ranges, ...y_ranges, ...extra_ranges]
+
+    const linked_plots = new Set(ranges.flatMap((r) => [...r.plots]))
 
     for (const plot_view of linked_plots) {
       const {x_range, y_range} = plot_view.model
-      plot_view.model.trigger_event(new RangesUpdate(x_range.start, x_range.end, y_range.start, y_range.end))
+      const event = new RangesUpdate(x_range.start, x_range.end, y_range.start, y_range.end)
+      plot_view.model.trigger_event(event)
     }
   }
 

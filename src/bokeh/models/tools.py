@@ -42,6 +42,7 @@ log = logging.getLogger(__name__)
 # Standard library imports
 import difflib
 import typing as tp
+from math import nan
 from typing import Literal
 
 # Bokeh imports
@@ -58,6 +59,7 @@ from ..core.enums import (
 from ..core.has_props import abstract
 from ..core.properties import (
     Alpha,
+    Any,
     AnyRef,
     Auto,
     Bool,
@@ -111,7 +113,7 @@ from .glyphs import (
     VStrip,
     XYGlyph,
 )
-from .ranges import Range1d
+from .ranges import Range
 from .renderers import DataRenderer, GlyphRenderer
 from .ui import UIElement
 
@@ -436,6 +438,10 @@ DEFAULT_RANGE_OVERLAY = lambda: BoxAnnotation(
     visible=True,
     editable=True,
     propagate_hover=True,
+    left=nan,
+    right=nan,
+    top=nan,
+    bottom=nan,
     left_limit=FrameLeft(),
     right_limit=FrameRight(),
     top_limit=FrameTop(),
@@ -470,12 +476,12 @@ class RangeTool(Tool):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
-    x_range = Nullable(Instance(Range1d), help="""
+    x_range = Nullable(Instance(Range), help="""
     A range synchronized to the x-dimension of the overlay. If None, the overlay
     will span the entire x-dimension.
     """)
 
-    y_range = Nullable(Instance(Range1d), help="""
+    y_range = Nullable(Instance(Range), help="""
     A range synchronized to the y-dimension of the overlay. If None, the overlay
     will span the entire y-dimension.
     """)
@@ -733,7 +739,7 @@ class TapTool(Tap, SelectTool):
 
     .. warning::
         Configuring modifiers is a platform dependent feature and
-        can make this tool unsable for example on mobile devices.
+        can make this tool unusable for example on mobile devices.
 
     """).accepts(Enum(KeyModifier), lambda key_mod: {key_mod: True})
 
@@ -765,6 +771,8 @@ class TapTool(Tap, SelectTool):
         please see :ref:`ug_interaction_js_callbacks_customjs_js_on_event`.
 
     """)
+
+    mode = Override(default="xor")
 
 class CrosshairTool(InspectTool):
     ''' *toolbar icon*: |crosshair_icon|
@@ -834,6 +842,10 @@ DEFAULT_BOX_ZOOM_OVERLAY = InstanceDefault(BoxAnnotation,
     level="overlay",
     visible=False,
     editable=False,
+    left=nan,
+    right=nan,
+    top=nan,
+    bottom=nan,
     top_units="canvas",
     left_units="canvas",
     bottom_units="canvas",
@@ -851,6 +863,10 @@ DEFAULT_BOX_SELECT_OVERLAY = InstanceDefault(BoxAnnotation,
     level="overlay",
     visible=False,
     editable=True,
+    left=nan,
+    right=nan,
+    top=nan,
+    bottom=nan,
     top_units="data",
     left_units="data",
     bottom_units="data",
@@ -1076,7 +1092,7 @@ class PolySelectTool(Tap, RegionSelectTool):
     The polygon selection tool allows users to make selections on a
     Plot by indicating a polygonal region with mouse clicks. single
     clicks (or taps) add successive points to the definition of the
-    polygon, and a double click (or tap) indicates the selection
+    polygon, and a press click (or tap) indicates the selection
     region is ready.
 
     See :ref:`ug_styling_plots_selected_unselected_glyphs` for information
@@ -1507,12 +1523,27 @@ class EditTool(GestureTool):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
+    default_overrides = Dict(String, Any, default={}, help="""
+    Padding values overriding ``ColumnarDataSource.default_values``.
+
+    Defines values to insert into non-coordinate columns when a new glyph is
+    inserted into the ``ColumnDataSource`` columns, e.g. when a circle glyph
+    defines ``"x"``, ``"y"`` and ``"color"`` columns, adding a new point will
+    add the x and y-coordinates to ``"x"`` and ``"y"`` columns and the color
+    column will be filled with the defined default value.
+    """)
+
     empty_value = Either(Bool, Int, Float, Date, Datetime, Color, String, default=0, help="""
-    Defines the value to insert on non-coordinate columns when a new
-    glyph is inserted into the ``ColumnDataSource`` columns, e.g. when a
-    circle glyph defines 'x', 'y' and 'color' columns, adding a new
-    point will add the x and y-coordinates to 'x' and 'y' columns and
-    the color column will be filled with the defined empty value.
+    The "last resort" padding value.
+
+    This is used the same as ``default_values``, when the tool was unable
+    to figure out a default value otherwise. The tool will try the following
+    alternatives in order:
+
+    1. ``EditTool.default_overrides``
+    2. ``ColumnarDataSource.default_values``
+    3. ``ColumnarDataSource``'s inferred default values
+    4. ``EditTool.empty_value``
     """)
 
     # TODO abstract renderers = List(Instance(GlyphRenderer & ...))
@@ -1546,9 +1577,8 @@ class BoxEditTool(EditTool, Drag, Tap):
 
     The supported actions include:
 
-    * Add box: Hold shift then click and drag anywhere on the plot or double
-      tap once to start drawing, move the mouse and double tap again to finish
-      drawing.
+    * Add box: Hold shift then click and drag anywhere on the plot or press
+      once to start drawing, move the mouse and press again to finish drawing.
 
     * Move box: Click and drag an existing box, the box will be dropped once
       you let go of the mouse button.
@@ -1672,8 +1702,8 @@ class PolyDrawTool(PolyTool, Drag, Tap):
 
     The supported actions include:
 
-    * Add patch or multi-line: Double tap to add the first vertex, then use tap
-      to add each subsequent vertex, to finalize the draw action double tap to
+    * Add patch or multi-line: press to add the first vertex, then use tap
+      to add each subsequent vertex, to finalize the draw action press to
       insert the final vertex or press the ESC key.
 
     * Move patch or multi-line: Tap and drag an existing patch/multi-line, the
@@ -1761,11 +1791,11 @@ class PolyEditTool(PolyTool, Drag, Tap):
 
     The supported actions include:
 
-    * Show vertices: Double tap an existing patch or multi-line
+    * Show vertices: press an existing patch or multi-line
 
-    * Add vertex: Double tap an existing vertex to select it, the tool will
+    * Add vertex: press an existing vertex to select it, the tool will
       draw the next point, to add it tap in a new location. To finish editing
-      and add a point double tap otherwise press the ESC key to cancel.
+      and add a point press otherwise press the ESC key to cancel.
 
     * Move vertex: Drag an existing vertex and let go of the mouse button to
       release it.
@@ -1802,7 +1832,7 @@ class LineEditTool(EditTool, Drag, Tap):
 
     The supported actions include:
 
-    * Show intersections: Double tap an existing line
+    * Show intersections: press an existing line
 
     * Move point: Drag an existing point and let go of the mouse button to
       release it.

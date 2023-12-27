@@ -22,13 +22,8 @@ export abstract class TextLikeInputView extends InputWidgetView {
     })
   }
 
-  protected abstract _render_input(): HTMLElement
-
   override render(): void {
     super.render()
-
-    const el = this._render_input()
-    this.group_el.appendChild(el)
 
     const {input_el} = this
     input_el.value = this.model.value

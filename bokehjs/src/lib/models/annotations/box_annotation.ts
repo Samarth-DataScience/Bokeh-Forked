@@ -14,7 +14,7 @@ import type {PanEvent, PinchEvent, Pannable, Pinchable, MoveEvent, Moveable, Key
 import {Signal} from "core/signaling"
 import type {Rect} from "core/types"
 import {assert} from "core/util/assert"
-import {Enum, Number, Nullable, Ref, Or} from "../../core/kinds"
+import {Enum, Number, Nullable, Ref, Or} from "core/kinds"
 import {BorderRadius} from "../common/kinds"
 import {round_rect} from "../common/painting"
 import * as resolve from "../common/resolve"
@@ -243,7 +243,7 @@ export class BoxAnnotationView extends AnnotationView implements Pannable, Pinch
 
   private _pan_state: {bbox: BBox, target: HitTarget} | null = null
 
-  _pan_start(ev: PanEvent): boolean {
+  on_pan_start(ev: PanEvent): boolean {
     if (this.model.visible && this.model.editable) {
       const {sx, sy} = ev
       const target = this._hit_test(sx, sy)
@@ -259,7 +259,7 @@ export class BoxAnnotationView extends AnnotationView implements Pannable, Pinch
     return false
   }
 
-  _pan(ev: PanEvent): void {
+  on_pan(ev: PanEvent): void {
     assert(this._pan_state != null)
 
     const {mappers} = this
@@ -374,14 +374,14 @@ export class BoxAnnotationView extends AnnotationView implements Pannable, Pinch
     this.model.pan.emit(["pan", ev.modifiers])
   }
 
-  _pan_end(ev: PanEvent): void {
+  on_pan_end(ev: PanEvent): void {
     this._pan_state = null
     this.model.pan.emit(["pan:end", ev.modifiers])
   }
 
   private _pinch_state: {bbox: BBox} | null = null
 
-  _pinch_start(ev: PinchEvent): boolean {
+  on_pinch_start(ev: PinchEvent): boolean {
     if (this.model.visible && this.model.editable && this.model.resizable != "none") {
       const {sx, sy} = ev
       if (this.bbox.contains(sx, sy)) {
@@ -395,7 +395,7 @@ export class BoxAnnotationView extends AnnotationView implements Pannable, Pinch
     return false
   }
 
-  _pinch(ev: PinchEvent): void {
+  on_pinch(ev: PinchEvent): void {
     assert(this._pinch_state != null)
 
     const slrtb = (() => {
@@ -436,7 +436,7 @@ export class BoxAnnotationView extends AnnotationView implements Pannable, Pinch
     this.model.pan.emit(["pan", ev.modifiers])
   }
 
-  _pinch_end(ev: PinchEvent): void {
+  on_pinch_end(ev: PinchEvent): void {
     this._pinch_state = null
     this.model.pan.emit(["pan:end", ev.modifiers])
   }
@@ -448,7 +448,7 @@ export class BoxAnnotationView extends AnnotationView implements Pannable, Pinch
 
   private _is_hovered: boolean = false
 
-  _move_start(_ev: MoveEvent): boolean {
+  on_enter(_ev: MoveEvent): boolean {
     const {_has_hover} = this
     if (_has_hover) {
       this._is_hovered = true
@@ -457,9 +457,9 @@ export class BoxAnnotationView extends AnnotationView implements Pannable, Pinch
     return _has_hover
   }
 
-  _move(_ev: MoveEvent): void {}
+  on_move(_ev: MoveEvent): void {}
 
-  _move_end(_ev: MoveEvent): void {
+  on_leave(_ev: MoveEvent): void {
     if (this._has_hover) {
       this._is_hovered = false
       this.request_paint()
@@ -564,10 +564,10 @@ export class BoxAnnotation extends Annotation {
     ])
 
     this.define<BoxAnnotation.Props>(({Boolean, Number, Ref, Or}) => ({
-      top:          [ Or(Number, Ref(Node)), NaN ],
-      bottom:       [ Or(Number, Ref(Node)), NaN ],
-      left:         [ Or(Number, Ref(Node)), NaN ],
-      right:        [ Or(Number, Ref(Node)), NaN ],
+      top:          [ Or(Number, Ref(Node)), () => new Node({target: "frame", symbol: "top"}) ],
+      bottom:       [ Or(Number, Ref(Node)), () => new Node({target: "frame", symbol: "bottom"}) ],
+      left:         [ Or(Number, Ref(Node)), () => new Node({target: "frame", symbol: "left"}) ],
+      right:        [ Or(Number, Ref(Node)), () => new Node({target: "frame", symbol: "right"}) ],
 
       top_units:    [ CoordinateUnits, "data" ],
       bottom_units: [ CoordinateUnits, "data" ],

@@ -49,7 +49,9 @@ from ..core.properties import (
     AngleSpec,
     Bool,
     DataSpec,
+    Dict,
     DistanceSpec,
+    Either,
     Enum,
     Float,
     Include,
@@ -64,6 +66,7 @@ from ..core.properties import (
     SizeSpec,
     String,
     StringSpec,
+    Tuple,
     field,
     value,
 )
@@ -120,6 +123,7 @@ __all__ = (
     'ImageURL',
     'Line',
     'Marker',
+    'MathMLGlyph',
     'MultiLine',
     'MultiPolygons',
     'Patch',
@@ -131,6 +135,7 @@ __all__ = (
     'Scatter',
     'Segment',
     'Step',
+    'TeXGlyph',
     'Text',
     'VArea',
     'VAreaStep',
@@ -424,11 +429,11 @@ class Block(LRTBGlyph):
     The y-coordinates of the centers of the blocks.
     """)
 
-    width = NumberSpec(default=1, help="""
+    width = DistanceSpec(default=1, help="""
     The widths of the blocks.
     """)
 
-    height = NumberSpec(default=1, help="""
+    height = DistanceSpec(default=1, help="""
     The heights of the blocks.
     """)
 
@@ -646,7 +651,7 @@ class HBar(LRTBGlyph):
     The y-coordinates of the centers of the horizontal bars.
     """)
 
-    height = NumberSpec(default=1, help="""
+    height = DistanceSpec(default=1, help="""
     The heights of the vertical bars.
     """)
 
@@ -856,7 +861,7 @@ class ImageStack(ImageBase):
     ''' Render images given as 3D stacked arrays by flattening each stack into
     an RGBA image using a ``StackColorMapper``.
 
-    The 3D arrays have shape (ny, nx, nstack) where ``nstack` is the number of
+    The 3D arrays have shape (ny, nx, nstack) where ``nstack`` is the number of
     stacks. The ``color_mapper`` produces an RGBA value for each of the
     (ny, nx) pixels by combining array values in the ``nstack`` direction.
 
@@ -1576,6 +1581,78 @@ class Text(XYGlyph, TextGlyph):
 
     border_line_color = Override(default=None)
 
+@abstract
+class MathTextGlyph(Text):
+    """ Base class for math text glyphs. """
+
+    # explicit __init__ to support Init signatures
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+
+class MathMLGlyph(MathTextGlyph):
+    """ Render mathematical content using `MathML <https://www.w3.org/Math/>`_
+    notation.
+
+    See :ref:`ug_styling_mathtext` in the |user guide| for more information.
+
+    """
+
+    # explicit __init__ to support Init signatures
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+
+class TeXGlyph(MathTextGlyph):
+    """
+    Render mathematical content using `LaTeX <https://www.latex-project.org/>`_
+    notation.
+
+    See :ref:`ug_styling_mathtext` in the |user guide| for more information.
+
+    .. note::
+        Bokeh uses `MathJax <https://www.mathjax.org>`_ to render text
+        containing mathematical notation.
+
+        MathJax only supports math-mode macros (no text-mode macros). You
+        can see more about differences between standard TeX/LaTeX and MathJax
+        here: https://docs.mathjax.org/en/latest/input/tex/differences.html
+
+    """
+
+    # explicit __init__ to support Init signatures
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+
+    macros = Dict(String, Either(String, Tuple(String, Int)), help="""
+    User defined TeX macros.
+
+    This is a mapping from control sequence names (without leading backslash) to
+    either replacement strings or tuples of a replacement string and a number
+    of arguments.
+
+    Example:
+
+    .. code-block:: python
+
+        TeX(text=r"\\R \\rightarrow \\R^2", macros={"RR": r"{\\bf R}"})
+
+    """)
+
+    display = Either(Enum("inline", "block", "auto"), default="auto", help="""
+    Defines how the text is interpreted and what TeX display mode to use.
+
+    The following values are allowed:
+
+    * ``"auto"`` (the default)
+      The text is parsed, requiring TeX delimiters to enclose math content,
+      e.g. ``"$$x^2$$"`` or ``r"\\[\\frac{x}{y}\\]"``. This allows mixed
+      math text and regular text content. TeX display mode is inferred by
+      the parser.
+    * ``"block"``
+      The text is taken verbatim and TeX's block mode is used.
+    * ``"inline"``
+      The text is taken verbatim and TeX's inline mode is used.
+    """)
+
 class VArea(FillGlyph, HatchGlyph):
     ''' Render a vertically directed area between two equal length sequences
     of y-coordinates with the same x-coordinates.
@@ -1670,7 +1747,7 @@ class VBar(LRTBGlyph):
     The x-coordinates of the centers of the vertical bars.
     """)
 
-    width = NumberSpec(default=1, help="""
+    width = DistanceSpec(default=1, help="""
     The widths of the vertical bars.
     """)
 
